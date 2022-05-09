@@ -10,6 +10,9 @@ import qwiic_joystick
 from adafruit_seesaw import seesaw, rotaryio, digitalio
 import tkinter
 import time
+import os
+import pyaudio
+import wave
 
 ###################### CONSTANTS ##########################
 COLORS=[(55,198,243),(56, 79, 255),(161, 80, 135), (1,137,255), (166,201,184)]
@@ -44,8 +47,8 @@ action_time = time.time()
 drawings = []
 drawing_nav = 0
 
-# Get button
-# seesaw = seesaw.Seesaw(board.I2C(), addr=0x36)
+# Get button 0x36
+# seesaw = seesaw.Seesaw(board.I2C(), addr=0x20)
 
 # seesaw_product = (seesaw.get_version() >> 16) & 0xFFFF
 # print("Found product {}".format(seesaw_product))
@@ -74,6 +77,23 @@ img = np.zeros((height,width,3), np.uint8)
 cv.namedWindow('Display',cv.WND_PROP_FULLSCREEN)
 
 cache = img.copy()
+print("Window initialized")
+
+# initialize recorder
+form_1 = pyaudio.paInt16 # 16-bit resolution
+chans = 1 # 1 channel
+samp_rate = 44100 # 44.1kHz sampling rate
+chunk = 4096 # 2^12 samples for buffer
+dev_index = 3 # device index found by p.get_device_info_by_index(ii)
+# wav_output_filename = 'record.wav' # name of .wav file
+audio = pyaudio.PyAudio() # create pyaudio instantiation
+
+# Uncomment to test what device we're using
+# for i in range(audio.get_device_count()):
+#     print(audio.get_device_info_by_index(i))
+frames = []
+stream = None
+print("Recorder initialized")
 
 ###################### HELPER FUNCTIONS ##########################
 drag_start = False
@@ -101,6 +121,9 @@ def select_line(id):
     for i in range(1, len(drawings[id].coords)):
         cv.line(img, drawings[id].coords[i-1], drawings[id].coords[i], drawings[id].color, thickness = 20)
 
+def PlayRecording(filename):
+    os.system('./' + filename)
+
 def switch_state(state):
     global img, my_state
     my_state = state
@@ -113,41 +136,80 @@ def switch_state(state):
     cv.rectangle(img, (3, 3), (textSize[0][0], 100), (0,0,0))
     cv.putText(img, text, (TEXT_OFFSET[0],textSize[0][1] + TEXT_OFFSET[1]), TEXT_FONTFACE, TEXT_SCALE, TEXT_COLOR, TEXT_THICKNESS, TEXT_LINETYPE, False)
 
-def record():
-    if(my_state == States.RECORD):
-        print("start recording")
-        my_state = States.RECORDING
-    elif(my_state == States.RECORDING):
-        print("Stop recording")
-        my_state = States.RECORD
-
 def checkTime():
     global action_time
     return (time.time()-action_time > 0.5)
+
+def StartRecording():
+    global stream
+    # create pyaudio stream
+    stream = audio.open(format = form_1,rate = samp_rate,channels = chans, \
+                        input_device_index = dev_index,input = True, \
+                        frames_per_buffer=chunk)
+    print("recording")
+
+def StopRecording():
+    global stream, audio
+    stream.stop_stream()
+    stream.close()
+    audio.terminate()
+    print("stopped")
+    filename = time.strftime("%Y%m%d-%H%M%S")+".wav"
+    wavefile = wave.open(filename,'wb')
+    wavefile.setnchannels(chans)
+    wavefile.setsampwidth(audio.get_sample_size(form_1))
+    wavefile.setframerate(samp_rate)
+    wavefile.writeframes(b''.join(frames))
+    wavefile.close()
+    audio = pyaudio.PyAudio() # create pyaudio instantiation
+    stream = None
+    while not os.path.isfile(filename):
+        print("not yet")
+        continue
+    print("New file created: "+filename)
+    drawings[-1].addRecording(filename)
+
+def record():
+    global my_state
+    if((my_state == States.VIEW) or (my_state == States.RECORD)):
+        print("start recording")
+        my_state = States.RECORDING
+        StartRecording()
+    elif(my_state == States.RECORDING):
+        print("Stop recording")
+        my_state = States.RECORD
+        StopRecording()
+
 ###########################################################
 
 while(True):
     # detect button press A
     # if pressed, check record state
     # if button.value:
-    #     record()
+    #     switch_state()
+    if(my_state == States.RECORDING):
+        data = stream.read(chunk)
+        frames.append(data)
     # detect joystick press
     if(joystick.button == 0 and checkTime()):
         action_time = time.time()
+        record()
         print("button pressed")
     joystick_x = joystick.horizontal
     joystick_y = joystick.vertical
     # if moved, check what the current position is
-    if joystick_x > 575 and checkTime():
-        drawing_nav = (drawing_nav-1)%len(drawings)
-        select_line(drawing_nav)
-        action_time = time.time()
-        print("L")
-    elif joystick_x < 450 and checkTime():
-        drawing_nav = (drawing_nav+1)%len(drawings)
-        select_line(drawing_nav)
-        action_time = time.time()
-        print("R")
+    if (len(drawings) != 0):
+        if joystick_x > 575 and checkTime():
+            drawing_nav = (drawing_nav-1)%len(drawings)
+            select_line(drawing_nav)
+            action_time = time.time()
+            print("L")
+        # Weird check to prevent accidental triggers
+        elif joystick_x < 450 and joystick_x > 0 and checkTime():
+            drawing_nav = (drawing_nav+1)%len(drawings)
+            select_line(drawing_nav)
+            action_time = time.time()
+            print("R"+str(joystick_x))
     cv.imshow('Display', img)
     if cv.waitKey(20)&0xFF == 27:
         break
