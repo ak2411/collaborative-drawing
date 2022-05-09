@@ -25,9 +25,11 @@ TEXT_LINETYPE = cv.LINE_8
 TEXT_OFFSET = (5,5)
 
 class States(Enum):
-    RECORD = 0
-    RECORDING = 1
-    VIEW = 2
+    START_CAMERA = 0
+    STOP_CAMERA = 1
+    START_VOICE = 2
+    STOP_VOICE = 3
+    VIEW = 4
 
 class Line:
     def __init__(self, color):
@@ -114,21 +116,23 @@ def draw(event, x, y, flags, param):
                 cache = img.copy()
 cv.setMouseCallback('Display', draw)
 
-def select_line(id):
+def select_drawing(id):
     global img
     img = cache.copy()
     cv.imshow('Display', img)
     for i in range(1, len(drawings[id].coords)):
         cv.line(img, drawings[id].coords[i-1], drawings[id].coords[i], drawings[id].color, thickness = 20)
+    play_voice_recording(drawings[id].recording)
 
-def PlayRecording(filename):
+def play_voice_recording(filename):
     os.system('./' + filename)
 
+# jump between states, add text
 def switch_state(state):
     global img, my_state
     my_state = state
     text = ""
-    if state == States.RECORD:
+    if state == States.START_CAMERA:
         text = "Record"
     elif state == States.VIEW:
         text = "View Drawings"
@@ -140,19 +144,21 @@ def checkTime():
     global action_time
     return (time.time()-action_time > 0.5)
 
-def StartRecording():
+def start_voice_recording():
     global stream
     # create pyaudio stream
     stream = audio.open(format = form_1,rate = samp_rate,channels = chans, \
                         input_device_index = dev_index,input = True, \
                         frames_per_buffer=chunk)
+    print_text("Audio recording")
     print("recording")
 
-def StopRecording():
+def stop_voice_recording():
     global stream, audio
     stream.stop_stream()
     stream.close()
     audio.terminate()
+    print_text("Stopped audio recording. Press button again to view all drawings.")
     print("stopped")
     filename = time.strftime("%Y%m%d-%H%M%S")+".wav"
     wavefile = wave.open(filename,'wb')
@@ -169,47 +175,76 @@ def StopRecording():
     print("New file created: "+filename)
     drawings[-1].addRecording(filename)
 
-def record():
-    global my_state
-    if((my_state == States.VIEW) or (my_state == States.RECORD)):
-        print("start recording")
-        my_state = States.RECORDING
-        StartRecording()
-    elif(my_state == States.RECORDING):
-        print("Stop recording")
-        my_state = States.RECORD
-        StopRecording()
+def start_camera_recording():
+    print_text("Gesture recording")
+    print("scr")
 
+def stop_camera_recording():
+    print_text("Stopped gesture recording. Press button again to start voice recording.")
+    print("stopcr")
+
+def print_text(text):
+    print("pt")
+
+def button_press():
+    global my_state
+    if(my_state == States.VIEW):
+        switch_state(States.START_CAMERA)
+        # Call start camera recording
+        start_camera_recording()
+        my_state = States.START_CAMERA
+    elif(my_state == States.START_CAMERA):
+        stop_camera_recording()
+        # Call stop camera recording
+        my_state = States.STOP_CAMERA
+    elif(my_state == States.STOP_CAMERA):
+        start_voice_recording()
+        my_state = States.START_VOICE
+    elif(my_state == States.START_VOICE):
+        stop_voice_recording()
+        my_state = States.STOP_VOICE
+    elif(my_state == States.STOP_VOICE):
+        switch_state(States.VIEW)
+        my_state = States.VIEW
+
+def reset():
+    print("reset")
+    # delete all the recordings
+    # reset the drawings list
+    # drawing_nav = 0
 ###########################################################
 
 while(True):
-    # detect button press A
+    ############################## detect button press A #############################
     # if pressed, check record state
     # if button.value:
-    #     switch_state()
+    #     button_press()
+    ############################# voice recording #############################
     if(my_state == States.RECORDING):
         data = stream.read(chunk)
         frames.append(data)
-    # detect joystick press
+    ############################## detect joystick press #############################
     if(joystick.button == 0 and checkTime()):
         action_time = time.time()
-        record()
+        button_press()
         print("button pressed")
+    ############################# detect horizontal vertical #############################
     joystick_x = joystick.horizontal
     joystick_y = joystick.vertical
     # if moved, check what the current position is
     if (len(drawings) != 0):
         if joystick_x > 575 and checkTime():
             drawing_nav = (drawing_nav-1)%len(drawings)
-            select_line(drawing_nav)
+            select_drawing(drawing_nav)
             action_time = time.time()
             print("L")
         # Weird check to prevent accidental triggers
         elif joystick_x < 450 and joystick_x > 0 and checkTime():
             drawing_nav = (drawing_nav+1)%len(drawings)
-            select_line(drawing_nav)
+            select_drawing(drawing_nav)
             action_time = time.time()
             print("R"+str(joystick_x))
+    #######################################################################################
     cv.imshow('Display', img)
     if cv.waitKey(20)&0xFF == 27:
         break
