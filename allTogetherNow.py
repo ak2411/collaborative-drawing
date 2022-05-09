@@ -1,5 +1,4 @@
 # from __future__ import print_function
-import board
 import pyaudio
 import cv2 as cv
 import numpy as np
@@ -7,19 +6,20 @@ import screeninfo
 import random
 from enum import Enum
 import qwiic_joystick
-from adafruit_seesaw import seesaw, rotaryio, digitalio
+import qwiic_button
 import tkinter
 import time
 import os
 import pyaudio
 import wave
+import sys
 
 ###################### CONSTANTS ##########################
 COLORS=[(55,198,243),(56, 79, 255),(161, 80, 135), (1,137,255), (166,201,184)]
 
 TEXT_FONTFACE = cv.FONT_HERSHEY_SIMPLEX
-TEXT_SCALE = 2
-TEXT_THICKNESS = 3
+TEXT_SCALE = 1
+TEXT_THICKNESS = 2
 TEXT_COLOR = (255,255,255)
 TEXT_LINETYPE = cv.LINE_8
 TEXT_OFFSET = (5,5)
@@ -50,15 +50,12 @@ drawings = []
 drawing_nav = 0
 
 # Get button 0x36
-# seesaw = seesaw.Seesaw(board.I2C(), addr=0x20)
+button = qwiic_button.QwiicButton()
+if button.begin() == False:
+    print("\nThe Qwiic Button isn't connected to the system. Please check your connection", \
+        file=sys.stderr)
 
-# seesaw_product = (seesaw.get_version() >> 16) & 0xFFFF
-# print("Found product {}".format(seesaw_product))
-# if seesaw_product != 4991:
-#     print("Wrong firmware loaded?  Expected 4991")
-
-# seesaw.pin_mode(24, seesaw.INPUT_PULLUP)
-# button = digitalio.DigitalIO(seesaw, 24)
+print("\nButton ready!")
 
 # initialize joystick
 joystick = qwiic_joystick.QwiicJoystick()
@@ -89,7 +86,6 @@ chunk = 4096 # 2^12 samples for buffer
 dev_index = 3 # device index found by p.get_device_info_by_index(ii)
 # wav_output_filename = 'record.wav' # name of .wav file
 audio = pyaudio.PyAudio() # create pyaudio instantiation
-
 # Uncomment to test what device we're using
 # for i in range(audio.get_device_count()):
 #     print(audio.get_device_info_by_index(i))
@@ -125,7 +121,7 @@ def select_drawing(id):
     play_voice_recording(drawings[id].recording)
 
 def play_voice_recording(filename):
-    os.system('./' + filename)
+    os.system('aplay ./' + filename)
 
 # jump between states, add text
 def switch_state(state):
@@ -136,9 +132,8 @@ def switch_state(state):
         text = "Record"
     elif state == States.VIEW:
         text = "View Drawings"
-    textSize = cv.getTextSize(text, TEXT_FONTFACE, TEXT_SCALE, TEXT_THICKNESS)
-    cv.rectangle(img, (3, 3), (textSize[0][0], 100), (0,0,0))
-    cv.putText(img, text, (TEXT_OFFSET[0],textSize[0][1] + TEXT_OFFSET[1]), TEXT_FONTFACE, TEXT_SCALE, TEXT_COLOR, TEXT_THICKNESS, TEXT_LINETYPE, False)
+    print_text(text)
+    
 
 def checkTime():
     global action_time
@@ -158,7 +153,7 @@ def stop_voice_recording():
     stream.stop_stream()
     stream.close()
     audio.terminate()
-    print_text("Stopped audio recording. Press button again to view all drawings.")
+    print_text("Stopped audio recording. \n Press button again to view all drawings.")
     print("stopped")
     filename = time.strftime("%Y%m%d-%H%M%S")+".wav"
     wavefile = wave.open(filename,'wb')
@@ -180,11 +175,14 @@ def start_camera_recording():
     print("scr")
 
 def stop_camera_recording():
-    print_text("Stopped gesture recording. Press button again to start voice recording.")
+    print_text("Stopped gesture recording.\n  Press button again to start voice recording.")
     print("stopcr")
 
 def print_text(text):
-    print("pt")
+    global img
+    textSize = cv.getTextSize(text, TEXT_FONTFACE, TEXT_SCALE, TEXT_THICKNESS)
+    cv.rectangle(img, (3, 3), (textSize[0][0], 120), (0,0,0), thickness = -1)
+    cv.putText(img, text, (TEXT_OFFSET[0],textSize[0][1] + TEXT_OFFSET[1]), TEXT_FONTFACE, TEXT_SCALE, TEXT_COLOR, TEXT_THICKNESS, TEXT_LINETYPE, False)
 
 def button_press():
     global my_state
@@ -215,13 +213,14 @@ def reset():
 ###########################################################
 
 while(True):
-    ############################## detect button press A #############################
+    ############################## detect single button press #############################
     # if pressed, check record state
-    # if button.value:
-    #     button_press()
+    if (button.is_button_pressed() and checkTime()):
+        action_time = time.time()
+        button_press()
     ############################# voice recording #############################
-    if(my_state == States.RECORDING):
-        data = stream.read(chunk)
+    if(my_state == States.START_VOICE):
+        data = stream.read(chunk, exception_on_overflow = False)
         frames.append(data)
     ############################## detect joystick press #############################
     if(joystick.button == 0 and checkTime()):
