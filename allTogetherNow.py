@@ -83,12 +83,9 @@ form_1 = pyaudio.paInt16 # 16-bit resolution
 chans = 1 # 1 channel
 samp_rate = 44100 # 44.1kHz sampling rate
 chunk = 4096 # 2^12 samples for buffer
-dev_index = 3 # device index found by p.get_device_info_by_index(ii)
+dev_index = 4 # device index found by p.get_device_info_by_index(ii)
 # wav_output_filename = 'record.wav' # name of .wav file
 audio = pyaudio.PyAudio() # create pyaudio instantiation
-# Uncomment to test what device we're using
-# for i in range(audio.get_device_count()):
-#     print(audio.get_device_info_by_index(i))
 frames = []
 stream = None
 print("Recorder initialized")
@@ -149,7 +146,8 @@ def start_voice_recording():
     print("recording")
 
 def stop_voice_recording():
-    global stream, audio
+    global stream
+    global audio
     stream.stop_stream()
     stream.close()
     audio.terminate()
@@ -199,8 +197,8 @@ def button_press():
         start_voice_recording()
         my_state = States.START_VOICE
     elif(my_state == States.START_VOICE):
-        stop_voice_recording()
         my_state = States.STOP_VOICE
+        stop_voice_recording()
     elif(my_state == States.STOP_VOICE):
         switch_state(States.VIEW)
         my_state = States.VIEW
