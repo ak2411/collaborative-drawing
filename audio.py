@@ -6,14 +6,14 @@ chans = 1 # 1 channel
 samp_rate = 44100 # 44.1kHz sampling rate
 chunk = 4096 # 2^12 samples for buffer
 record_secs = 3 # seconds to record
-dev_index = 4 # device index found by p.get_device_info_by_index(ii)
+dev_index = 3 # device index found by p.get_device_info_by_index(ii)
 wav_output_filename = 'test1.wav' # name of .wav file
 
 audio = pyaudio.PyAudio() # create pyaudio instantiation
 
 # Uncomment to test what device we're using
-# for i in range(audio.get_device_count()):
-#     print(audio.get_device_info_by_index(i))
+for i in range(audio.get_device_count()):
+    print(audio.get_device_info_by_index(i))
 
 # create pyaudio stream
 stream = audio.open(format = form_1,rate = samp_rate,channels = chans, \

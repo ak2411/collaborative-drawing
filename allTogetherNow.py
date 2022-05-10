@@ -125,7 +125,7 @@ def switch_state(state):
     my_state = state
     text = ""
     if state == States.VIEW:
-        text = "View Drawings"
+        text = "View Drawings. Please use joystick to navigate."
     print_text(text)
     
 def checkTime():
