@@ -50,8 +50,6 @@ def record_gesture(keep_recording = True):
         #cv2.imshow('frame',frame) #show the line overlaid on frame
         cv2.imshow('frame',stacked)
 
-
-
         k = cv2.waitKey(1) & 0xFF
         if k == 27:
             break

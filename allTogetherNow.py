@@ -24,6 +24,10 @@ TEXT_COLOR = (255,255,255)
 TEXT_LINETYPE = cv.LINE_8
 TEXT_OFFSET = (5,5)
 
+CAM_FRAME_SHAPE = (480, 640, 3)
+CAM_LOWER_RANGE = np.array([110,100,100], dtype=np.uint8)
+CAM_UPPER_RANGE = np.array([130,255,255], dtype=np.uint8)
+
 class States(Enum):
     START_CAMERA = 0
     STOP_CAMERA = 1
@@ -49,7 +53,7 @@ action_time = time.time()
 drawings = []
 drawing_nav = 0
 
-# Get button 0x36
+# Get button
 button = qwiic_button.QwiicButton()
 if button.begin() == False:
     print("\nThe Qwiic Button isn't connected to the system. Please check your connection", \
@@ -71,7 +75,7 @@ print("Joystick initialized")
 screen = screeninfo.get_monitors()[0]
 width, height = screen.width, screen.height
 
-img = np.zeros((height,width,3), np.uint8)
+img = np.zeros(CAM_FRAME_SHAPE, np.uint8)
 
 cv.namedWindow('Display',cv.WND_PROP_FULLSCREEN)
 
@@ -89,6 +93,12 @@ audio = pyaudio.PyAudio() # create pyaudio instantiation
 frames = []
 stream = None
 print("Recorder initialized")
+
+# initialize camera
+cap = None
+kernel = np.ones((20,20),np.uint8)
+noiseth = 800
+has_draw_started = False
 
 ###################### HELPER FUNCTIONS ##########################
 drag_start = False
@@ -169,11 +179,18 @@ def stop_voice_recording():
     drawings[-1].addRecording(filename)
 
 def start_camera_recording():
+    global cap
     print_text("Gesture recording")
+    cap = cv.VideoCapture(0)
+
     print("scr")
 
 def stop_camera_recording():
+    global has_draw_started, cap, img
     print_text("Stopped gesture recording.\n  Press button again to start voice recording.")
+    has_draw_started = False
+    img = cache.copy()
+    cap.release()
     print("stopcr")
 
 def print_text(text):
@@ -216,6 +233,30 @@ while(True):
     if (button.is_button_pressed() and checkTime()):
         action_time = time.time()
         button_press()
+    ############################## camera recording ##############################
+    if(my_state == States.START_CAMERA):
+        _, frame = cap.read()
+        frame = cv.flip( frame, 1 )
+        hsv = cv.cvtColor(frame, cv.COLOR_BGR2HSV)
+        mask = cv.inRange(hsv, CAM_LOWER_RANGE, CAM_UPPER_RANGE)
+        res = cv.bitwise_and(frame,frame, mask= mask)
+        mask = cv.erode(mask,kernel,iterations = 1)
+        mask = cv.dilate(mask,kernel,iterations = 2)
+        contours, hierarchy = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        if contours and cv.contourArea(max(contours,key = cv.contourArea)) > noiseth:
+            c = max(contours, key = cv.contourArea)
+            x,y,w,h = cv.boundingRect(c)
+            if not has_draw_started:
+                color = random.randint(0, len(COLORS)-1)
+                drawings.append(Line(COLORS[color]))
+                drawings[-1].addPoint((x,y))
+                has_draw_started = True
+            else:
+                cv.line(img, drawings[-1].coords[-1], (x,y), drawings[-1].color,thickness = 5)
+                drawings[-1].addPoint((x,y))
+                cache = img.copy()
+        frame_new = cv.add(frame, img)
+        cv.imshow('Display', frame_new)
     ############################# voice recording #############################
     if(my_state == States.START_VOICE):
         data = stream.read(chunk, exception_on_overflow = False)
@@ -242,7 +283,8 @@ while(True):
             action_time = time.time()
             print("R"+str(joystick_x))
     #######################################################################################
-    cv.imshow('Display', img)
+    if(my_state != States.START_CAMERA):
+        cv.imshow('Display', img)
     if cv.waitKey(20)&0xFF == 27:
         break
 cv.destroyAllWindows()
