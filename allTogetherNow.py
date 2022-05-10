@@ -18,8 +18,8 @@ import sys
 COLORS=[(55,198,243),(56, 79, 255),(161, 80, 135), (1,137,255), (166,201,184)]
 
 TEXT_FONTFACE = cv.FONT_HERSHEY_SIMPLEX
-TEXT_SCALE = 1
-TEXT_THICKNESS = 2
+TEXT_SCALE = 0.4
+TEXT_THICKNESS = 1
 TEXT_COLOR = (255,255,255)
 TEXT_LINETYPE = cv.LINE_8
 TEXT_OFFSET = (5,5)
@@ -76,9 +76,11 @@ screen = screeninfo.get_monitors()[0]
 width, height = screen.width, screen.height
 
 img = np.zeros(CAM_FRAME_SHAPE, np.uint8)
+img_no_select = np.zeros(CAM_FRAME_SHAPE, np.uint8)
+img_text = np.zeros(CAM_FRAME_SHAPE, np.uint8)
 
 cv.namedWindow('Display',cv.WND_PROP_FULLSCREEN)
-
+cv.setWindowProperty('Display', 0, 1)
 cache = img.copy()
 print("Window initialized")
 
@@ -92,6 +94,7 @@ dev_index = 4 # device index found by p.get_device_info_by_index(ii)
 audio = pyaudio.PyAudio() # create pyaudio instantiation
 frames = []
 stream = None
+is_play_recording = False
 print("Recorder initialized")
 
 # initialize camera
@@ -101,23 +104,10 @@ noiseth = 800
 has_draw_started = False
 
 ###################### HELPER FUNCTIONS ##########################
-drag_start = False
-def draw(event, x, y, flags, param):
-    global drag_start, drawing_nav, img, cache, my_state
-    if(my_state == States.VIEW):
-        if event == cv.EVENT_LBUTTONDOWN:
-            color = random.randint(0, len(COLORS)-1)
-            drawings.append(Line(COLORS[color]))
-            drawings[-1].addPoint((x,y))
-            drag_start = True
-        elif event == cv.EVENT_LBUTTONUP:
-            drag_start = False
-        elif event == cv.EVENT_MOUSEMOVE:
-            if drag_start:
-                cv.line(img, drawings[-1].coords[-1], (x,y), drawings[-1].color,thickness = 5)
-                drawings[-1].addPoint((x,y))
-                cache = img.copy()
-cv.setMouseCallback('Display', draw)
+def show_image():
+    global img, img_text
+    frame_new = cv.add(img, img_text)
+    cv.imshow('Display', frame_new)
 
 def select_drawing(id):
     global img
@@ -125,7 +115,6 @@ def select_drawing(id):
     cv.imshow('Display', img)
     for i in range(1, len(drawings[id].coords)):
         cv.line(img, drawings[id].coords[i-1], drawings[id].coords[i], drawings[id].color, thickness = 20)
-    play_voice_recording(drawings[id].recording)
 
 def play_voice_recording(filename):
     os.system('aplay ./' + filename)
@@ -135,13 +124,10 @@ def switch_state(state):
     global img, my_state
     my_state = state
     text = ""
-    if state == States.START_CAMERA:
-        text = "Record"
-    elif state == States.VIEW:
+    if state == States.VIEW:
         text = "View Drawings"
     print_text(text)
     
-
 def checkTime():
     global action_time
     return (time.time()-action_time > 0.5)
@@ -161,7 +147,7 @@ def stop_voice_recording():
     stream.stop_stream()
     stream.close()
     audio.terminate()
-    print_text("Stopped audio recording. \n Press button again to view all drawings.")
+    print_text("Stopped audio recording. Press button again to view all drawings.")
     print("stopped")
     filename = time.strftime("%Y%m%d-%H%M%S")+".wav"
     wavefile = wave.open(filename,'wb')
@@ -182,30 +168,29 @@ def start_camera_recording():
     global cap
     print_text("Gesture recording")
     cap = cv.VideoCapture(0)
-
     print("scr")
 
 def stop_camera_recording():
     global has_draw_started, cap, img
-    print_text("Stopped gesture recording.\n  Press button again to start voice recording.")
     has_draw_started = False
     img = cache.copy()
+    print_text("Stopped gesture recording. Press button again to start voice recording.")
     cap.release()
     print("stopcr")
 
 def print_text(text):
-    global img
+    global img_text
     textSize = cv.getTextSize(text, TEXT_FONTFACE, TEXT_SCALE, TEXT_THICKNESS)
-    cv.rectangle(img, (3, 3), (textSize[0][0], 120), (0,0,0), thickness = -1)
-    cv.putText(img, text, (TEXT_OFFSET[0],textSize[0][1] + TEXT_OFFSET[1]), TEXT_FONTFACE, TEXT_SCALE, TEXT_COLOR, TEXT_THICKNESS, TEXT_LINETYPE, False)
+    cv.rectangle(img_text, (3, 3), (1000, textSize[0][1]+10), (0,0,0), thickness = -1)
+    cv.putText(img_text, text, (TEXT_OFFSET[0],textSize[0][1] + TEXT_OFFSET[1]), TEXT_FONTFACE, TEXT_SCALE, TEXT_COLOR, TEXT_THICKNESS, TEXT_LINETYPE, False)
 
 def button_press():
-    global my_state
+    global my_state,cache, img, img_no_select
     if(my_state == States.VIEW):
-        switch_state(States.START_CAMERA)
+        my_state = States.START_CAMERA
+        img = img_no_select.copy()
         # Call start camera recording
         start_camera_recording()
-        my_state = States.START_CAMERA
     elif(my_state == States.START_CAMERA):
         stop_camera_recording()
         # Call stop camera recording
@@ -255,36 +240,44 @@ while(True):
                 cv.line(img, drawings[-1].coords[-1], (x,y), drawings[-1].color,thickness = 5)
                 drawings[-1].addPoint((x,y))
                 cache = img.copy()
+                img_no_select = img.copy()
         frame_new = cv.add(frame, img)
-        cv.imshow('Display', frame_new)
+        frame_new_with_text = cv.add(frame_new, img_text)
+        cv.imshow('Display', frame_new_with_text)
     ############################# voice recording #############################
     if(my_state == States.START_VOICE):
         data = stream.read(chunk, exception_on_overflow = False)
         frames.append(data)
     ############################## detect joystick press #############################
-    if(joystick.button == 0 and checkTime()):
-        action_time = time.time()
-        button_press()
-        print("button pressed")
+    if(my_state == States.VIEW):
+        if(joystick.button == 0 and checkTime()):
+            action_time = time.time()
+            img = img_no_select.copy()
+            print("button pressed")
     ############################# detect horizontal vertical #############################
-    joystick_x = joystick.horizontal
-    joystick_y = joystick.vertical
-    # if moved, check what the current position is
-    if (len(drawings) != 0):
-        if joystick_x > 575 and checkTime():
-            drawing_nav = (drawing_nav-1)%len(drawings)
-            select_drawing(drawing_nav)
-            action_time = time.time()
-            print("L")
-        # Weird check to prevent accidental triggers
-        elif joystick_x < 450 and joystick_x > 0 and checkTime():
-            drawing_nav = (drawing_nav+1)%len(drawings)
-            select_drawing(drawing_nav)
-            action_time = time.time()
-            print("R"+str(joystick_x))
+        joystick_x = joystick.horizontal
+        joystick_y = joystick.vertical
+        # if moved, check what the current position is
+        if (len(drawings) != 0):
+            if joystick_x > 575 and checkTime():
+                drawing_nav = abs(drawing_nav-1)%len(drawings)
+                select_drawing(drawing_nav)
+                action_time = time.time()
+                is_play_recording = True
+            # Weird check to prevent accidental triggers
+            elif joystick_x < 450 and joystick_x > 0 and checkTime():
+                drawing_nav = (drawing_nav+1)%len(drawings)
+                select_drawing(drawing_nav)
+                action_time = time.time()
+                is_play_recording = True
     #######################################################################################
     if(my_state != States.START_CAMERA):
-        cv.imshow('Display', img)
+        show_image()
     if cv.waitKey(20)&0xFF == 27:
         break
+    if(is_play_recording):
+        time.sleep(0.5)
+        play_voice_recording(drawings[drawing_nav].recording)
+        is_play_recording = False
+    
 cv.destroyAllWindows()
